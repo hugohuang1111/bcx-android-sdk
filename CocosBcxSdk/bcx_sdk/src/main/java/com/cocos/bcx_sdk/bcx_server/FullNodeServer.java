@@ -1,6 +1,7 @@
 package com.cocos.bcx_sdk.bcx_server;
 
 import com.cocos.bcx_sdk.bcx_api.CocosBcxApiWrapper;
+import com.cocos.bcx_sdk.bcx_log.LogUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,10 +48,9 @@ public class FullNodeServer {
                                         " Throwable:" + (null == t ? "" : t.toString()) +
                                         " Response:" + (null == response ? "" : response.toString()));
                         super.onFailure(webSocket, t, response);
+                        LogUtils.i("onFailure", t.getMessage());
                         synchronized (objectSync) {
-
                             listSelectedServer.add("");
-
                             if (listSelectedServer.size() == nTotalCount) {
                                 objectSync.notify();
                             }
@@ -60,6 +60,7 @@ public class FullNodeServer {
                     @Override
                     public void onOpen(WebSocket webSocket, Response response) {
                         super.onOpen(webSocket, response);
+                        LogUtils.i("onOpen", response.message());
                         synchronized (objectSync) {
                             listSelectedServer.add(strServer);
                             objectSync.notify();

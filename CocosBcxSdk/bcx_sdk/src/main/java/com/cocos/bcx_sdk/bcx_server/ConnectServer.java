@@ -10,6 +10,7 @@ import com.cocos.bcx_sdk.bcx_server.entity.Reply;
 import com.cocos.bcx_sdk.bcx_server.entity.ReplyBase;
 import com.cocos.bcx_sdk.bcx_wallet.chain.account_object;
 import com.cocos.bcx_sdk.bcx_wallet.chain.account_related_word_view_object;
+import com.cocos.bcx_sdk.bcx_wallet.chain.asset;
 import com.cocos.bcx_sdk.bcx_wallet.chain.asset_fee_object;
 import com.cocos.bcx_sdk.bcx_wallet.chain.asset_object;
 import com.cocos.bcx_sdk.bcx_wallet.chain.block_header;
@@ -27,6 +28,7 @@ import com.cocos.bcx_sdk.bcx_wallet.chain.object_id;
 import com.cocos.bcx_sdk.bcx_wallet.chain.operation_history_object;
 import com.cocos.bcx_sdk.bcx_wallet.chain.transaction;
 import com.cocos.bcx_sdk.bcx_wallet.chain.transaction_in_block_info;
+import com.cocos.bcx_sdk.bcx_wallet.chain.vesting_balances_object;
 import com.cocos.bcx_sdk.bcx_wallet.chain.world_view_object;
 import com.cocos.bcx_sdk.bcx_wallet.fc.crypto.sha256_object;
 import com.google.common.reflect.TypeToken;
@@ -56,6 +58,7 @@ import static com.cocos.bcx_sdk.bcx_error.ErrorCode.WEBSOCKET_CONNECT_INVALID;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_BROADCAST_TRANSACTION;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_BROADCAST_TRANSACTION_WITH_CALLBACK;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_DATABASE;
+import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_ESTIMATION_GAS;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_GET_ACCOUNTS;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_GET_ACCOUNT_BALANCES;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_GET_ACCOUNT_HISTORY;
@@ -73,9 +76,9 @@ import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_GET_LIMIT_ORDERS;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_GET_MARKET_HISTORY;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_GET_NH_CREATOR;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_GET_OBJECTS;
-import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_GET_REQUIRED_FEES;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_GET_TRANSACTION_BY_ID;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_GET_TRANSACTION_IN_BLOCK_INFO;
+import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_GET_VESTING_BALANCES;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_HISTORY;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_LIST_ACCOUNT_NH_ASSET;
 import static com.cocos.bcx_sdk.bcx_rpc.RPC.CALL_LIST_ACCOUNT_NH_ASSET_ORDER;
@@ -176,6 +179,7 @@ public class ConnectServer extends WebSocketListener {
      */
     public synchronized int connect() {
         String strServer = FullNodeServer.getConnectServers();
+        LogUtils.i("ConnectedServerUrl", strServer);
         if (TextUtils.isEmpty(strServer)) {
             return OPERATE_FAILED;
         }
@@ -199,7 +203,7 @@ public class ConnectServer extends WebSocketListener {
         int nRet = OPERATE_SUCCESS;
 
         try {
-            boolean bLogin = login("", "");
+            boolean bLogin = login();
             if (bLogin) {
                 mDatabaseId = getApiId(CALL_DATABASE);
                 mHistoryId = getApiId(CALL_HISTORY);
@@ -300,7 +304,7 @@ public class ConnectServer extends WebSocketListener {
         }
     }
 
-    private boolean login(String strUserName, String strPassword) throws NetworkStatusException {
+    private boolean login() throws NetworkStatusException {
         Call callObject = new Call();
         callObject.id = mnCallId.getAndIncrement();
         callObject.method = "call";
@@ -309,8 +313,8 @@ public class ConnectServer extends WebSocketListener {
         callObject.params.add(CALL_LOGIN);
 
         List<Object> listLoginParams = new ArrayList<>();
-        listLoginParams.add(strUserName);
-        listLoginParams.add(strPassword);
+        listLoginParams.add("");
+        listLoginParams.add("");
         callObject.params.add(listLoginParams);
 
         ReplyObjectProcess<Reply<Boolean>> replyObject = new ReplyObjectProcess<>(new com.google.gson.reflect.TypeToken<Reply<Boolean>>() {
@@ -467,7 +471,7 @@ public class ConnectServer extends WebSocketListener {
         ReplyObjectProcess<Reply<List<Object>>> replyObject = new ReplyObjectProcess<>(new TypeToken<Reply<List<Object>>>() {
         }.getType());
         Reply<List<Object>> reply = sendForReply(callObject, replyObject);
-        return reply.result.get(0);
+        return reply.result.size() > 0 ? reply.result.get(0) : null;
     }
 
 
@@ -709,7 +713,8 @@ public class ConnectServer extends WebSocketListener {
         ReplyObjectProcess<Reply<List<List<Object>>>> replyObject = new ReplyObjectProcess<>(new com.google.gson.reflect.TypeToken<Reply<List<List<Object>>>>() {
         }.getType());
         Reply<List<List<Object>>> reply = sendForReply(callObject, replyObject);
-        return global_config_object.getInstance().getGsonBuilder().create().toJson(reply.result.get(0).get(1));
+
+        return reply.result.size() > 0 ? global_config_object.getInstance().getGsonBuilder().create().toJson(reply.result.get(0).get(1)) : reply.result;
     }
 
     /**
@@ -757,30 +762,6 @@ public class ConnectServer extends WebSocketListener {
         Reply<block_info> replyObject = sendForReply(callObject, replyObjectProcess);
         return replyObject.result;
     }
-
-
-    /**
-     * get_required_fees
-     *
-     * @param operation
-     * @return
-     * @throws NetworkStatusException
-     */
-    public List<asset_fee_object> get_required_fees(List<Object> operation) throws NetworkStatusException {
-        Call callObject = new Call();
-        callObject.id = mnCallId.getAndIncrement();
-        callObject.method = "call";
-        callObject.params = new ArrayList<>();
-        callObject.params.add(mDatabaseId);
-        callObject.params.add(CALL_GET_REQUIRED_FEES);
-        callObject.params.add(operation);
-
-        ReplyObjectProcess<Reply<List<asset_fee_object>>> replyObjectProcess = new ReplyObjectProcess<>(new TypeToken<Reply<List<asset_fee_object>>>() {
-        }.getType());
-        Reply<List<asset_fee_object>> replyObject = sendForReply(callObject, replyObjectProcess);
-        return replyObject.result;
-    }
-
 
     /**
      * get_contract
@@ -1019,7 +1000,7 @@ public class ConnectServer extends WebSocketListener {
         }.getType());
         Reply<List<nh_asset_order_object>> reply = sendForReply(callObject, replyObject);
 
-        return reply.result.get(0);
+        return reply.result.size() > 0 ? reply.result.get(0) : null;
     }
 
 
@@ -1046,7 +1027,7 @@ public class ConnectServer extends WebSocketListener {
         }.getType());
         Reply<List<limit_orders_object>> reply = sendForReply(callObject, replyObject);
 
-        return reply.result.get(0);
+        return reply.result.size() > 0 ? reply.result.get(0) : null;
     }
 
 
@@ -1104,7 +1085,7 @@ public class ConnectServer extends WebSocketListener {
      *
      * @throws NetworkStatusException
      */
-    public List<Object> list_nh_asset_by_creator(String account_id, int page, int pageSize) throws NetworkStatusException {
+    public List<Object> list_nh_asset_by_creator(String account_id, String worldview, int page, int pageSize) throws NetworkStatusException {
         Call callObject = new Call();
         callObject.id = mnCallId.getAndIncrement();
         callObject.method = "call";
@@ -1114,6 +1095,7 @@ public class ConnectServer extends WebSocketListener {
 
         List<Object> nh_order_params = new ArrayList<>();
         nh_order_params.add(account_id);
+        nh_order_params.add(worldview);
         nh_order_params.add(page);
         nh_order_params.add(pageSize);
         callObject.params.add(nh_order_params);
@@ -1226,6 +1208,52 @@ public class ConnectServer extends WebSocketListener {
         return replyLookupAccountNames.result;
     }
 
+
+    /**
+     * estimation_gas
+     *
+     * @throws NetworkStatusException
+     */
+    public asset_fee_object estimation_gas(asset tr_id) throws NetworkStatusException {
+        Call callObject = new Call();
+        callObject.id = mnCallId.getAndIncrement();
+        callObject.method = "call";
+        callObject.params = new ArrayList<>();
+        callObject.params.add(mDatabaseId);
+        callObject.params.add(CALL_ESTIMATION_GAS);
+
+        List<asset> asset_fee_objects = new ArrayList<>();
+        asset_fee_objects.add(tr_id);
+        callObject.params.add(asset_fee_objects);
+
+        ReplyObjectProcess<Reply<asset_fee_object>> replyObject = new ReplyObjectProcess<>(new TypeToken<Reply<asset_fee_object>>() {
+        }.getType());
+        Reply<asset_fee_object> replyLookupAccountNames = sendForReply(callObject, replyObject);
+        return replyLookupAccountNames.result;
+    }
+
+    /**
+     * get_vesting_balances
+     *
+     * @throws NetworkStatusException
+     */
+    public List<vesting_balances_object> get_vesting_balances(String account_id) throws NetworkStatusException {
+        Call callObject = new Call();
+        callObject.id = mnCallId.getAndIncrement();
+        callObject.method = "call";
+        callObject.params = new ArrayList<>();
+        callObject.params.add(mDatabaseId);
+        callObject.params.add(CALL_GET_VESTING_BALANCES);
+
+        List<String> asset_fee_objects = new ArrayList<>();
+        asset_fee_objects.add(account_id);
+        callObject.params.add(asset_fee_objects);
+
+        ReplyObjectProcess<Reply<List<vesting_balances_object>>> replyObject = new ReplyObjectProcess<>(new TypeToken<Reply<List<vesting_balances_object>>>() {
+        }.getType());
+        Reply<List<vesting_balances_object>> replyLookupAccountNames = sendForReply(callObject, replyObject);
+        return replyLookupAccountNames.result;
+    }
 
     /**
      * get transaction by tr_id

@@ -1,6 +1,7 @@
 package com.cocos.bcx_sdk.bcx_wallet.chain;
 
 import com.cocos.bcx_sdk.bcx_error.KeyInvalideException;
+import com.cocos.bcx_sdk.bcx_log.LogUtils;
 import com.cocos.bcx_sdk.bcx_wallet.fc.io.base_encoder;
 import com.cocos.bcx_sdk.bcx_wallet.fc.io.raw_type;
 import com.google.common.primitives.UnsignedInteger;
@@ -22,6 +23,7 @@ import java.nio.ByteBuffer;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 
 import static com.cocos.bcx_sdk.bcx_wallet.chain.config.GRAPHENE_ADDRESS_PREFIX;
 
@@ -258,10 +260,7 @@ public class types {
 
     public static class account_options {
         public public_key_type memo_key;
-        public object_id<account_object> voting_account;
-        public Integer num_witness;
-        public Integer num_committee;
-        public HashSet<Object> votes;
+        public List<String> votes;
         // 未完成
         public HashSet<String> extensions;  // extension type
 
@@ -270,22 +269,41 @@ public class types {
 
             baseEncoder.write(memo_key.key_data);
 
-            rawObject.pack(baseEncoder, UnsignedInteger.fromIntBits(voting_account.get_instance()));
-
-            baseEncoder.write(rawObject.get_byte_array(num_witness.shortValue()));
-
-            baseEncoder.write(rawObject.get_byte_array(num_committee.shortValue()));
-//
             rawObject.pack(baseEncoder, UnsignedInteger.fromIntBits(votes.size()));
-
-//            for (vote_id_type type : votes) {
-//                rawObject.pack(baseEncoder, UnsignedInteger.fromIntBits(type.content));
-//            }
+            for (String type : votes) {
+                baseEncoder.write(rawObject.get_byte_array(new vote_id_type(type).content));
+            }
             //extensions 未完成
             rawObject.pack(baseEncoder, UnsignedInteger.fromIntBits(extensions.size()));
 
         }
+    }
 
+
+    public static class vote_id_type {
+        int content;
+
+        public vote_id_type(String strSerial) {
+            int nIndex = strSerial.indexOf(':');
+            if (nIndex == -1) {
+                throw new RuntimeException("vote_id_type invalid serial");
+            }
+            int nType = Integer.valueOf(strSerial.substring(0, nIndex));
+            int nInstance = Integer.valueOf(strSerial.substring(nIndex + 1));
+            content = (nInstance << 8) | nType;
+        }
+    }
+
+    public static class vote_id_type_deserializer implements JsonDeserializer<vote_id_type> {
+
+        @Override
+        public vote_id_type deserialize(JsonElement json,
+                                        Type typeOfT,
+                                        JsonDeserializationContext context) throws JsonParseException {
+            String strSerial = json.getAsString();
+
+            return new vote_id_type(strSerial);
+        }
     }
 
     public static class public_key_type_deserializer implements JsonDeserializer<public_key_type> {
