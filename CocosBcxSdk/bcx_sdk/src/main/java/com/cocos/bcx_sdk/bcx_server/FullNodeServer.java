@@ -43,11 +43,11 @@ public class FullNodeServer {
                 WebSocket webSocket = okHttpClient.newWebSocket(request, new WebSocketListener() {
                     @Override
                     public void onFailure(WebSocket webSocket, Throwable t, Response response) {
+                        super.onFailure(webSocket, t, response);
                         android.util.Log.e("BCX-Android-SDK",
                                 "Connect failed, WebSocket:" + (null == webSocket ? "" : webSocket.toString()) +
                                         " Throwable:" + (null == t ? "" : t.toString()) +
                                         " Response:" + (null == response ? "" : response.toString()));
-                        super.onFailure(webSocket, t, response);
                         LogUtils.i("onFailure", t.getMessage());
                         synchronized (objectSync) {
                             listSelectedServer.add("");
